@@ -68,11 +68,11 @@ config = {
         database: {
             client: 'mysql',
             connection: {
-                host: '$OPENSHIFT_MYSQL_DB_HOST',
-                user: 'admin4gfTW1z',
-                password: 'mCrzyq4GpSy8',
-                database: 'blog',
-                port: '$OPENSHIFT_MYSQL_DB_PORT',
+                host: process.env.OPENSHIFT_MYSQL_DB_HOST,
+                user: process.env.OPENSHIFT_MYSQL_DB_USERNAME,
+                password: process.env.OPENSHIFT_MYSQL_DB_PASSWORD,
+                database: process.env.OPENSHIFT_APP_NAME,
+                port: process.env.OPENSHIFT_MYSQL_DB_PORT,
                 charset: 'utf8'
             },
             debug: true
