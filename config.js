@@ -12,7 +12,6 @@ config = {
 
         // Example mail config
         // Visit http://docs.ghost.org/mail for instructions
-        // ```
          mail: {
              transport: 'SMTP',
              options: {
@@ -23,12 +22,15 @@ config = {
                  }
              }
          },
-        // ```
 
         database: {
-            client: 'sqlite3',
+            client: 'mysql',
             connection: {
-                filename: path.join(__dirname, '/content/data/ghost-dev.db')
+                host: 'localhost',
+                user: 'ghost',
+                password: 'ghost',
+                database: 'ghost',
+                charset: 'utf8'
             },
             debug: false
         },
@@ -55,10 +57,22 @@ config = {
                  }
              }
          },
+        // database: {
+        //     client: 'sqlite3',
+        //     connection: {
+        //         filename: path.join(__dirname, '/content/data/ghost.db')
+        //     },
+        //     debug: false
+        // },
+
         database: {
-            client: 'sqlite3',
+            client: 'mysql',
             connection: {
-                filename: path.join(__dirname, '/content/data/ghost.db')
+                host: '$OPENSHIFT_MYSQL_DB_HOST',
+                user: 'admin4gfTW1z',
+                password: 'mCrzyq4GpSy8',
+                database: 'blog',
+                charset: 'utf8'
             },
             debug: false
         },
