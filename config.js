@@ -75,7 +75,7 @@ config = {
                 port: process.env.OPENSHIFT_MYSQL_DB_PORT,
                 charset: 'utf8'
             },
-            debug: true
+            debug: false
         },
         server: {
             // Host to be passed to node's `net.Server#listen()`
