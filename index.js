@@ -7,6 +7,8 @@ var configLoader = require('./core/config-loader.js'),
 // If no env is set, default to development
 process.env.NODE_ENV = process.env.NODE_ENV || 'development';
 
+console.log(process.env.NODE_ENV);
+
 configLoader.loadConfig().then(function () {
     // The server and its dependencies require a populated config
     require('./core/server');
