@@ -72,6 +72,7 @@ config = {
                 user: 'admin4gfTW1z',
                 password: 'mCrzyq4GpSy8',
                 database: 'blog',
+                port: '$OPENSHIFT_MYSQL_DB_PORT',
                 charset: 'utf8'
             },
             debug: false
