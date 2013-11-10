@@ -11,6 +11,7 @@
             'blur  .post-setting-slug' : 'editSlug',
             'click .post-setting-slug' : 'selectSlug',
             'blur  .post-setting-date' : 'editDate',
+            'click .post-setting-static-page' : 'toggleStaticPage',
             'click .delete' : 'deletePost'
         },
 
@@ -19,6 +20,7 @@
                 this.listenTo(this.model, 'change:id', this.render);
                 this.listenTo(this.model, 'change:status', this.render);
                 this.listenTo(this.model, 'change:published_at', this.render);
+                this.listenTo(this.model, 'change:page', this.render);
             }
         },
 
@@ -29,12 +31,18 @@
 
             $('.post-setting-slug').val(slug);
 
+            // Update page status test if already a page.
+            if (this.model && this.model.get('page')) {
+                $('.post-setting-static-page').prop('checked', this.model.get('page'));
+            }
+
             // Insert the published date, and make it editable if it exists.
             if (this.model && this.model.get('published_at')) {
                 pubDate = moment(pubDate).format('DD MMM YY');
             }
 
             if (this.model && this.model.get('id')) {
+                this.$('.post-setting-page').removeClass('hidden');
                 this.$('.delete').removeClass('hidden');
             }
 
@@ -62,6 +70,7 @@
                 slug: newSlug
             }, {
                 success : function (model, response, options) {
+                    /*jslint unparam:true*/
                     // Repopulate slug in case it changed on the server (e.g. 'new-slug-2')
                     slugEl.value = model.get('slug');
                     Ghost.notifications.addItem({
@@ -71,6 +80,7 @@
                     });
                 },
                 error : function (model, xhr) {
+                    /*jslint unparam:true*/
                     Ghost.notifications.addItem({
                         type: 'error',
                         message: Ghost.Views.Utils.getRequestErrorMessage(xhr),
@@ -83,25 +93,27 @@
         editDate: function (e) {
             e.preventDefault();
             var self = this,
-                momentPubDate,
+                parseDateFormats = ['DD MMM YY', 'DD MMM YYYY', 'DD/MM/YY', 'DD/MM/YYYY', 'DD-MM-YY', 'DD-MM-YYYY'],
+                displayDateFormat = 'DD MMM YY',
                 errMessage = '',
                 pubDate = self.model.get('published_at'),
+                pubDateMoment = moment(pubDate, parseDateFormats),
                 pubDateEl = e.currentTarget,
-                newPubDate = pubDateEl.value;
+                newPubDate = pubDateEl.value,
+                newPubDateMoment = moment(newPubDate, parseDateFormats);
 
             // Ensure the published date has changed
-            if (newPubDate.length === 0 || pubDate === newPubDate) {
-                pubDateEl.value = pubDate === undefined ? 'Not Published' : moment(pubDate).format("DD MMM YY");
+            if (newPubDate.length === 0 || pubDateMoment.isSame(newPubDateMoment)) {
+                pubDateEl.value = pubDate === undefined ? 'Not Published' : pubDateMoment.format(displayDateFormat);
                 return;
             }
 
             // Validate new Published date
-            momentPubDate = moment(newPubDate, ["DD MMM YY", "DD MMM YYYY", "DD/MM/YY", "DD/MM/YYYY", "DD-MM-YY", "DD-MM-YYYY"]);
-            if (!momentPubDate.isValid()) {
+            if (!newPubDateMoment.isValid()) {
                 errMessage = 'Published Date must be a valid date with format: DD MMM YY (e.g. 6 Dec 14)';
             }
 
-            if (momentPubDate.diff(new Date(), 'h') > 0) {
+            if (newPubDateMoment.diff(new Date(), 'h') > 0) {
                 errMessage = 'Published Date cannot currently be in the future.';
             }
 
@@ -111,24 +123,26 @@
                     message: errMessage,
                     status: 'passive'
                 });
-                pubDateEl.value = moment(pubDate).format("DD MMM YY");
+                pubDateEl.value = pubDateMoment.format(displayDateFormat);
                 return;
             }
 
             // Save new 'Published' date
             this.model.save({
                 // Temp Fix. Set hour to 12 instead of 00 to avoid some TZ issues.
-                published_at: momentPubDate.hour(12).toDate()
+                published_at: newPubDateMoment.hour(12).toDate()
             }, {
                 success : function (model, response, options) {
-                    pubDateEl.value = moment(model.get('published_at')).format("DD MMM YY");
+                    /*jslint unparam:true*/
+                    pubDateEl.value = moment(model.get('published_at')).format(displayDateFormat);
                     Ghost.notifications.addItem({
                         type: 'success',
-                        message: "Publish date successfully changed to <strong>" + pubDateEl.value + '</strong>.',
+                        message: 'Publish date successfully changed to <strong>' + pubDateEl.value + '</strong>.',
                         status: 'passive'
                     });
                 },
                 error : function (model, xhr) {
+                    /*jslint unparam:true*/
                     Ghost.notifications.addItem({
                         type: 'error',
                         message: Ghost.Views.Utils.getRequestErrorMessage(xhr),
@@ -137,6 +151,34 @@
                 }
             });
 
+        },
+
+        toggleStaticPage: function (e) {
+            e.preventDefault();
+            var pageEl = $(e.currentTarget),
+                page = this.model ? !this.model.get('page') : false;
+
+            this.model.save({
+                page: page
+            }, {
+                success : function (model, response, options) {
+                    /*jslint unparam:true*/
+                    pageEl.prop('checked', page);
+                    Ghost.notifications.addItem({
+                        type: 'success',
+                        message: "Successfully converted " + (page ? "to static page" : "to post") + '.',
+                        status: 'passive'
+                    });
+                },
+                error : function (model, xhr) {
+                    /*jslint unparam:true*/
+                    Ghost.notifications.addItem({
+                        type: 'error',
+                        message: Ghost.Views.Utils.getRequestErrorMessage(xhr),
+                        status: 'passive'
+                    });
+                }
+            });
         },
 
         deletePost: function (e) {

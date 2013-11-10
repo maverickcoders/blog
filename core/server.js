@@ -22,6 +22,12 @@ var express     = require('express'),
     server = express(),
     ghost = new Ghost();
 
+// If we're in development mode, require "when/console/monitor"
+// for help in seeing swallowed promise errors.
+if (process.env.NODE_ENV === 'development') {
+    require('when/monitor/console');
+}
+
 // ##Custom Middleware
 
 // ### Auth Middleware
@@ -64,13 +70,15 @@ function redirectToDashboard(req, res, next) {
 }
 
 function redirectToSignup(req, res, next) {
+    /*jslint unparam:true*/
     api.users.browse().then(function (users) {
         if (users.length === 0) {
             return res.redirect('/ghost/signup/');
         }
+        next();
+    }).otherwise(function (err) {
+        return next(new Error(err));
     });
-
-    next();
 }
 
 // While we're here, let's clean up on aisle 5
@@ -78,6 +86,7 @@ function redirectToSignup(req, res, next) {
 // plus the local messages, as they have already been added at this point
 // otherwise they'd appear one too many times
 function cleanNotifications(req, res, next) {
+    /*jslint unparam:true*/
     ghost.notifications = _.reject(ghost.notifications, function (notification) {
         return notification.status === 'passive';
     });
@@ -104,23 +113,26 @@ function ghostLocals(req, res, next) {
     res.locals = res.locals || {};
     res.locals.version = packageInfo.version;
     res.locals.path = req.path;
-    res.locals.csrfToken = req.session._csrf;
+    res.locals.csrfToken = req.csrfToken();
 
     if (res.isAdmin) {
-        _.extend(res.locals,  {
-            messages: ghost.notifications
-        });
-
         api.users.read({id: req.session.user}).then(function (currentUser) {
             _.extend(res.locals,  {
                 currentUser: {
                     name: currentUser.name,
                     email: currentUser.email,
                     image: currentUser.image
-                }
+                },
+                messages: ghost.notifications
             });
             next();
         }).otherwise(function () {
+            // Only show passive notifications
+            _.extend(res.locals, {
+                messages: _.reject(ghost.notifications, function (notification) {
+                    return notification.status !== 'passive';
+                })
+            });
             next();
         });
     } else {
@@ -131,6 +143,7 @@ function ghostLocals(req, res, next) {
 // ### DisableCachedResult Middleware
 // Disable any caching until it can be done properly
 function disableCachedResult(req, res, next) {
+    /*jslint unparam:true*/
     res.set({
         'Cache-Control': 'no-cache, must-revalidate',
         'Expires': 'Sat, 26 Jul 1997 05:00:00 GMT'
@@ -155,6 +168,7 @@ function whenEnabled(setting, fn) {
 // ### InitViews Middleware
 // Initialise Theme or Admin Views
 function initViews(req, res, next) {
+    /*jslint unparam:true*/
     var hbsOptions;
 
     if (!res.isAdmin) {
@@ -179,7 +193,7 @@ function initViews(req, res, next) {
 // ### Activate Theme
 // Helper for manageAdminAndTheme
 function activateTheme() {
-    var stackLocation = _.indexOf(server.stack, _.find(server.stack, function (stackItem, key) {
+    var stackLocation = _.indexOf(server.stack, _.find(server.stack, function (stackItem) {
         return stackItem.route === '' && stackItem.handle.name === 'settingEnabled';
     }));
 
@@ -191,6 +205,9 @@ function activateTheme() {
     if (stackLocation) {
         server.stack[stackLocation].handle = whenEnabled(server.get('activeTheme'), middleware.staticTheme(ghost));
     }
+
+    // Update user error template
+    errors.updateActiveTheme(ghost.settings('activeTheme'));
 }
 
  // ### ManageAdminAndTheme Middleware
@@ -270,11 +287,7 @@ when(ghost.init()).then(function () {
     server.use(express.urlencoded());
     server.use('/ghost/upload/', express.multipart());
     server.use('/ghost/upload/', express.multipart({uploadDir: __dirname + '/content/images'}));
-    server.use('/ghost/debug/db/import/', express.multipart());
-
-    // Session handling
-    // Pro tip: while in development mode cookieSession can be used
-    // to keep you logged in while restarting the server
+    server.use('/ghost/api/v0.1/db/', express.multipart());
     server.use(express.cookieParser(ghost.dbHash));
     server.use(express.cookieSession({ cookie : { maxAge: 12 * 60 * 60 * 1000 }}));
 
@@ -307,33 +320,37 @@ when(ghost.init()).then(function () {
     // ### API routes
     /* TODO: auth should be public auth not user auth */
     // #### Posts
-    server.get('/api/v0.1/posts', authAPI, disableCachedResult, api.requestHandler(api.posts.browse));
-    server.post('/api/v0.1/posts', authAPI, disableCachedResult, api.requestHandler(api.posts.add));
-    server.get('/api/v0.1/posts/:id', authAPI, disableCachedResult, api.requestHandler(api.posts.read));
-    server.put('/api/v0.1/posts/:id', authAPI, disableCachedResult, api.requestHandler(api.posts.edit));
-    server.del('/api/v0.1/posts/:id', authAPI, disableCachedResult, api.requestHandler(api.posts.destroy));
+    server.get('/ghost/api/v0.1/posts', authAPI, disableCachedResult, api.requestHandler(api.posts.browse));
+    server.post('/ghost/api/v0.1/posts', authAPI, disableCachedResult, api.requestHandler(api.posts.add));
+    server.get('/ghost/api/v0.1/posts/:id', authAPI, disableCachedResult, api.requestHandler(api.posts.read));
+    server.put('/ghost/api/v0.1/posts/:id', authAPI, disableCachedResult, api.requestHandler(api.posts.edit));
+    server.del('/ghost/api/v0.1/posts/:id', authAPI, disableCachedResult, api.requestHandler(api.posts.destroy));
     // #### Settings
-    server.get('/api/v0.1/settings/', authAPI, disableCachedResult, api.requestHandler(api.settings.browse));
-    server.get('/api/v0.1/settings/:key/', authAPI, disableCachedResult, api.requestHandler(api.settings.read));
-    server.put('/api/v0.1/settings/', authAPI, disableCachedResult, api.requestHandler(api.settings.edit));
+    server.get('/ghost/api/v0.1/settings/', authAPI, disableCachedResult, api.requestHandler(api.settings.browse));
+    server.get('/ghost/api/v0.1/settings/:key/', authAPI, disableCachedResult, api.requestHandler(api.settings.read));
+    server.put('/ghost/api/v0.1/settings/', authAPI, disableCachedResult, api.requestHandler(api.settings.edit));
     // #### Users
-    server.get('/api/v0.1/users/', authAPI, disableCachedResult, api.requestHandler(api.users.browse));
-    server.get('/api/v0.1/users/:id/', authAPI, disableCachedResult, api.requestHandler(api.users.read));
-    server.put('/api/v0.1/users/:id/', authAPI, disableCachedResult, api.requestHandler(api.users.edit));
+    server.get('/ghost/api/v0.1/users/', authAPI, disableCachedResult, api.requestHandler(api.users.browse));
+    server.get('/ghost/api/v0.1/users/:id/', authAPI, disableCachedResult, api.requestHandler(api.users.read));
+    server.put('/ghost/api/v0.1/users/:id/', authAPI, disableCachedResult, api.requestHandler(api.users.edit));
     // #### Tags
-    server.get('/api/v0.1/tags/', authAPI, disableCachedResult, api.requestHandler(api.tags.all));
+    server.get('/ghost/api/v0.1/tags/', authAPI, disableCachedResult, api.requestHandler(api.tags.all));
     // #### Notifications
-    server.del('/api/v0.1/notifications/:id', authAPI, disableCachedResult, api.requestHandler(api.notifications.destroy));
-    server.post('/api/v0.1/notifications/', authAPI, disableCachedResult, api.requestHandler(api.notifications.add));
-
+    server.del('/ghost/api/v0.1/notifications/:id', authAPI, disableCachedResult, api.requestHandler(api.notifications.destroy));
+    server.post('/ghost/api/v0.1/notifications/', authAPI, disableCachedResult, api.requestHandler(api.notifications.add));
+    // #### Import/Export
+    server.get('/ghost/api/v0.1/db/', auth, api.db['export']);
+    server.post('/ghost/api/v0.1/db/', auth, api.db['import']);
 
     // ### Admin routes
     /* TODO: put these somewhere in admin */
     server.get(/^\/logout\/?$/, function redirect(req, res) {
+        /*jslint unparam:true*/
         res.redirect(301, '/signout/');
     });
     server.get(/^\/signout\/?$/, admin.logout);
     server.get('/ghost/login/', function redirect(req, res) {
+        /*jslint unparam:true*/
         res.redirect(301, '/ghost/signin/');
     });
     server.get('/ghost/signin/', redirectToSignup, redirectToDashboard, admin.login);
@@ -348,15 +365,17 @@ when(ghost.init()).then(function () {
     server.get('/ghost/content/', auth, admin.content);
     server.get('/ghost/settings*', auth, admin.settings);
     server.get('/ghost/debug/', auth, admin.debug.index);
-    server.get('/ghost/debug/db/export/', auth, admin.debug['export']);
-    server.post('/ghost/debug/db/import/', auth, admin.debug['import']);
+
     // We don't want to register bodyParser globally b/c of security concerns, so use multipart only here
     server.post('/ghost/upload/', auth, admin.uploader);
+
     // redirect to /ghost and let that do the authentication to prevent redirects to /ghost//admin etc.
     server.get(/^\/((ghost-admin|admin|wp-admin|dashboard|signin)\/?)/, function (req, res) {
+        /*jslint unparam:true*/
         res.redirect('/ghost/');
     });
     server.get(/^\/(ghost$\/?)/, auth, function (req, res) {
+        /*jslint unparam:true*/
         res.redirect('/ghost/');
     });
     server.get('/ghost/', redirectToSignup, auth, admin.index);
@@ -411,7 +430,7 @@ when(ghost.init()).then(function () {
             });
         } else {
             console.log(
-                "Ghost is running...".green,
+                ("Ghost is running in " + process.env.NODE_ENV + "...").green,
                 "\nListening on",
                 getSocket() || ghost.config().server.host + ':' + ghost.config().server.port,
                 "\nUrl configured as:",
@@ -434,22 +453,31 @@ when(ghost.init()).then(function () {
         loading.resolve();
     }
 
-    // ## Start Ghost App
-    if (getSocket()) {
-        // Make sure the socket is gone before trying to create another
-        fs.unlink(getSocket(), function (err) {
+    // Expose the express server on the ghost instance.
+    ghost.server = server;
+
+    // Initialize plugins then start the server
+    ghost.initPlugins().then(function () {
+
+        // ## Start Ghost App
+        if (getSocket()) {
+            // Make sure the socket is gone before trying to create another
+            fs.unlink(getSocket(), function (err) {
+                /*jslint unparam:true*/
+                server.listen(
+                    getSocket(),
+                    startGhost
+                );
+                fs.chmod(getSocket(), '0744');
+            });
+
+        } else {
             server.listen(
-                getSocket(),
+                ghost.config().server.port,
+                ghost.config().server.host,
                 startGhost
             );
-            fs.chmod(getSocket(), '0744');
-        });
+        }
 
-    } else {
-        server.listen(
-            ghost.config().server.port,
-            ghost.config().server.host,
-            startGhost
-        );
-    }
-}, errors.logAndThrowError);
+    });
+}).otherwise(errors.logAndThrowError);

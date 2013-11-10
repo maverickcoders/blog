@@ -1,11 +1,7 @@
 var Ghost         = require('../../ghost'),
-    dataExport    = require('../data/export'),
-    dataImport    = require('../data/import'),
     _             = require('underscore'),
     fs            = require('fs-extra'),
     path          = require('path'),
-    when          = require('when'),
-    nodefn        = require('when/node/function'),
     api           = require('../api'),
     moment        = require('moment'),
     errors        = require('../errorHandling'),
@@ -47,76 +43,43 @@ function setSelected(list, name) {
     return list;
 }
 
-// TODO: this could be a separate module
-function getUniqueFileName(dir, name, ext, i, done) {
-    var filename,
-        append = '';
-
-    if (i) {
-        append = '-' + i;
-    }
-
-    filename = path.join(dir, name + append + ext);
-    fs.exists(filename, function (exists) {
-        if (exists) {
-            setImmediate(function () {
-                i = i + 1;
-                return getUniqueFileName(dir, name, ext, i, done);
-            });
-        } else {
-            return done(filename);
-        }
-    });
-}
-
 adminControllers = {
+    'get_storage': function () {
+        // TODO this is where the check for storage plugins should go
+        // Local file system is the default 
+        var storageChoice = 'localfilesystem.js';
+        return require('./storage/' + storageChoice);
+    },
     'uploader': function (req, res) {
-
-        var currentDate = moment(),
-            month = currentDate.format('MMM'),
-            year =  currentDate.format('YYYY'),
-            tmp_path = req.files.uploadimage.path,
-            dir = path.join('content/images', year, month),
+        var type = req.files.uploadimage.type,
             ext = path.extname(req.files.uploadimage.name).toLowerCase(),
-            type = req.files.uploadimage.type,
-            basename = path.basename(req.files.uploadimage.name, ext).replace(/[\W]/gi, '_');
+            storage = adminControllers.get_storage();
 
-        function renameFile(target_path) {
-            // adds directories recursively
-            fs.mkdirs(dir, function (err) {
-                if (err) {
-                    return errors.logError(err);
-                }
+        if ((type !== 'image/jpeg' && type !== 'image/png' && type !== 'image/gif')
+                || (ext !== '.jpg' && ext !== '.jpeg' && ext !== '.png' && ext !== '.gif')) {
+            return res.send(415, 'Unsupported Media Type');
+        }
 
-                fs.copy(tmp_path, target_path, function (err) {
-                    if (err) {
-                        return errors.logError(err);
+        storage
+            .save(new Date().getTime(), req.files.uploadimage)
+            .then(function (url) {
+
+                // delete the temporary file
+                // TODO convert to promise using nodefn
+                fs.unlink(req.files.uploadimage.path, function (e) {
+                    if (e) {
+                        return errors.logError(e);
                     }
 
-                    fs.unlink(tmp_path, function (e) {
-                        if (err) {
-                            return errors.logError(err);
-                        }
-
-                        // the src for the image must be in URI format, not a file system path, which in Windows uses \
-                        var src = path.join('/', target_path).replace(new RegExp('\\' + path.sep, 'g'), '/');
-                        return res.send(src);
-                    });
+                    return res.send(url);
                 });
+            })
+            .otherwise(function (e) {
+                return errors.logError(e);
             });
-        }
-
-        //limit uploads to type && extension
-        if ((type === 'image/jpeg' || type === 'image/png' || type === 'image/gif')
-                && (ext === '.jpg' || ext === '.jpeg' || ext === '.png' || ext === '.gif')) {
-            getUniqueFileName(dir, basename, ext, null, function (filename) {
-                renameFile(filename);
-            });
-        } else {
-            res.send(403, 'Invalid file type');
-        }
     },
     'login': function (req, res) {
+        /*jslint unparam:true*/
         res.render('login', {
             bodyClass: 'ghost-login',
             hideNavbar: true,
@@ -146,7 +109,7 @@ adminControllers = {
             res.json(401, {error: 'Slow down, there are way too many login attempts!'});
         }
     },
-    changepw: function (req, res) {
+    'changepw': function (req, res) {
         api.users.changePassword({
             currentUser: req.session.user,
             oldpw: req.body.password,
@@ -160,6 +123,7 @@ adminControllers = {
 
     },
     'signup': function (req, res) {
+        /*jslint unparam:true*/
         res.render('signup', {
             bodyClass: 'ghost-signup',
             hideNavbar: true,
@@ -190,6 +154,7 @@ adminControllers = {
     },
 
     'forgotten': function (req, res) {
+        /*jslint unparam:true*/
         res.render('forgotten', {
             bodyClass: 'ghost-forgotten',
             hideNavbar: true,
@@ -242,6 +207,7 @@ adminControllers = {
         });
     },
     'index': function (req, res) {
+        /*jslint unparam:true*/
         res.render('content', {
             bodyClass: 'manage',
             adminNav: setSelected(adminNavbar, 'content')
@@ -261,6 +227,7 @@ adminControllers = {
         }
     },
     'content': function (req, res) {
+        /*jslint unparam:true*/
         res.render('content', {
             bodyClass: 'manage',
             adminNav: setSelected(adminNavbar, 'content')
@@ -284,111 +251,11 @@ adminControllers = {
     },
     'debug': { /* ugly temporary stuff for managing the app before it's properly finished */
         index: function (req, res) {
+            /*jslint unparam:true*/
             res.render('debug', {
                 bodyClass: 'settings',
                 adminNav: setSelected(adminNavbar, 'settings')
             });
-        },
-        'export': function (req, res) {
-            return dataExport()
-                .then(function (exportedData) {
-                    // Save the exported data to the file system for download
-                    var fileName = path.resolve(__dirname + '/../../server/data/export/exported-' + (new Date().getTime()) + '.json');
-
-                    return nodefn.call(fs.writeFile, fileName, JSON.stringify(exportedData)).then(function () {
-                        return when(fileName);
-                    });
-                })
-                .then(function (exportedFilePath) {
-                    // Send the exported data file
-                    res.download(exportedFilePath, 'GhostData.json');
-                })
-                .otherwise(function (error) {
-                    // Notify of an error if it occurs
-                    var notification = {
-                        type: 'error',
-                        message: error.message || error,
-                        status: 'persistent',
-                        id: 'per-' + (ghost.notifications.length + 1)
-                    };
-
-                    return api.notifications.add(notification).then(function () {
-                        res.redirect('/ghost/debug/');
-                    });
-                });
-        },
-        'import': function (req, res) {
-            if (!req.files.importfile) {
-                // Notify of an error if it occurs
-                var notification = {
-                    type: 'error',
-                    message:  "Must select a file to import",
-                    status: 'persistent',
-                    id: 'per-' + (ghost.notifications.length + 1)
-                };
-
-                return api.notifications.add(notification).then(function () {
-                    res.redirect('/ghost/debug/');
-                });
-            }
-
-            // Get the current version for importing
-            api.settings.read({ key: 'databaseVersion' })
-                .then(function (setting) {
-                    return when(setting.value);
-                }, function () {
-                    return when('001');
-                })
-                .then(function (databaseVersion) {
-                    // Read the file contents
-                    return nodefn.call(fs.readFile, req.files.importfile.path)
-                        .then(function (fileContents) {
-                            var importData;
-
-                            // Parse the json data
-                            try {
-                                importData = JSON.parse(fileContents);
-                            } catch (e) {
-                                return when.reject(new Error("Failed to parse the import file"));
-                            }
-
-                            if (!importData.meta || !importData.meta.version) {
-                                return when.reject(new Error("Import data does not specify version"));
-                            }
-
-                            // Import for the current version
-                            return dataImport(databaseVersion, importData);
-                        });
-                })
-                .then(function importSuccess() {
-                    var notification = {
-                        type: 'success',
-                        message: "Data imported. Log in with the user details you imported",
-                        status: 'persistent',
-                        id: 'per-' + (ghost.notifications.length + 1)
-                    };
-
-                    return api.notifications.add(notification).then(function () {
-                        req.session = null;
-                        res.set({
-                            "X-Cache-Invalidate": "/*"
-                        });
-                        res.redirect('/ghost/signin/');
-                    });
-
-                }, function importFailure(error) {
-                    // Notify of an error if it occurs
-                    var notification = {
-                        type: 'error',
-                        message: error.message || error,
-                        status: 'persistent',
-                        id: 'per-' + (ghost.notifications.length + 1)
-                    };
-
-                    return api.notifications.add(notification).then(function () {
-                        res.redirect('/ghost/debug/');
-                    });
-                });
         }
     }
 };

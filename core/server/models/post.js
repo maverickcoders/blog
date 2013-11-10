@@ -20,7 +20,7 @@ Post = ghostBookshelf.Model.extend({
     permittedAttributes: [
         'id', 'uuid', 'title', 'slug', 'markdown', 'html', 'meta_title', 'meta_description',
         'featured', 'image', 'status', 'language', 'author_id', 'created_at', 'created_by', 'updated_at', 'updated_by',
-        'published_at', 'published_by'
+        'page', 'published_at', 'published_by'
     ],
 
     defaults: function () {
@@ -65,7 +65,7 @@ Post = ghostBookshelf.Model.extend({
 
         if (this.hasChanged('slug')) {
             // Pass the new slug through the generator to strip illegal characters, detect duplicates
-            return this.generateSlug(Post, this.get('slug'))
+            return this.generateSlug(Post, this.get('slug'), { status: 'all' })
                 .then(function (slug) {
                     self.set({slug: slug});
                 });
@@ -84,7 +84,7 @@ Post = ghostBookshelf.Model.extend({
 
         if (!this.get('slug')) {
             // Generating a slug requires a db call to look for conflicting slugs
-            return this.generateSlug(Post, this.get('title'))
+            return this.generateSlug(Post, this.get('title'), { status: 'all' })
                 .then(function (slug) {
                     self.set({slug: slug});
                 });
@@ -181,6 +181,15 @@ Post = ghostBookshelf.Model.extend({
     // Extends base model findOne to eager-fetch author and user relationships.
     findOne: function (args, options) {
         options = options || {};
+
+        args = _.extend({
+            status: 'published'
+        }, args || {});
+
+        if (args.status === 'all') {
+            delete args.status;
+        }
+
         options.withRelated = [ 'author', 'user', 'tags' ];
         return ghostBookshelf.Model.findOne.call(this, args, options);
     },
@@ -216,12 +225,16 @@ Post = ghostBookshelf.Model.extend({
         opts = _.extend({
             page: 1,
             limit: 15,
-            where: {},
+            where: { page: false },
             status: 'published',
             orderBy: ['published_at', 'DESC']
         }, opts);
 
         postCollection = Posts.forge();
+
+        if (opts.where && opts.where.page === 'all') {
+            delete opts.where.page;
+        }
 
         // Unless `all` is passed as an option, filter on
         // the status provided.
@@ -258,7 +271,7 @@ Post = ghostBookshelf.Model.extend({
                 }
 
                 return qb.count(_.result(collection, 'idAttribute')).then(function (resp) {
-                    var totalPosts = resp[0].aggregate,
+                    var totalPosts = parseInt(resp[0].aggregate, 10),
                         data = {
                             posts: collection.toJSON(),
                             page: parseInt(opts.page, 10),
@@ -328,9 +341,19 @@ Post = ghostBookshelf.Model.extend({
     },
 
     add: function (newPostData, options) {
-        return ghostBookshelf.Model.add.call(this, newPostData, options).tap(function (post) {
+        var self = this;
+        return ghostBookshelf.Model.add.call(this, newPostData, options).then(function (post) {
             // associated models can't be created until the post has an ID, so run this after
-            return post.updateTags(newPostData.tags);
+            return when(post.updateTags(newPostData.tags)).then(function () {
+                return self.findOne({status: 'all', id: post.id});
+            });
+        });
+    },
+    edit: function (editedPost, options) {
+        var self = this;
+
+        return ghostBookshelf.Model.edit.call(this, editedPost, options).then(function (editedObj) {
+            return self.findOne({status: 'all', id: editedObj.id});
         });
     },
     destroy: function (_identifier, options) {

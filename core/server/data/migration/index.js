@@ -1,4 +1,3 @@
-
 var _               = require('underscore'),
     when            = require('when'),
     series          = require('when/sequence'),
@@ -54,7 +53,7 @@ function getDatabaseVersion() {
                     return databaseVersion;
                 });
         }
-        return when.reject('Settings table does not exist');
+        throw new Error('Settings table does not exist');
     });
 }
 
@@ -99,7 +98,7 @@ module.exports = {
             }
 
         }, function (err) {
-            if (err === 'Settings table does not exist') {
+            if (err.message || err === 'Settings table does not exist') {
                 // 4. The database has not yet been created
                 // Bring everything up from initial version.
                 return self.migrateUpFreshDb();
@@ -128,14 +127,12 @@ module.exports = {
     // Only do this if we have no database at all
     migrateUpFreshDb: function () {
         var migration = require('./' + initialVersion);
-
         return migration.up().then(function () {
             // Load the fixtures
-            return fixtures.populateFixtures();
-
-        }).then(function () {
-            // Initialise the default settings
-            return Settings.populateDefaults();
+            return fixtures.populateFixtures().then(function () {
+                // Initialise the default settings
+                return Settings.populateDefaults();
+            });
         });
     },
 

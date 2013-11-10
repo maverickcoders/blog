@@ -30,6 +30,8 @@ var config      = require('../config'),
     instance,
     defaults;
 
+when.pipeline = require('when/pipeline');
+
 // ## Default values
 /**
  * A hash of default values to use instead of 'magic' numbers/strings.
@@ -155,6 +157,7 @@ Ghost.prototype.init = function () {
             self.dbHash = dbhash.attributes.value;
             return dbhash.attributes.value;
         }).otherwise(function (error) {
+            /*jslint unparam:true*/
             // this is where all the "first run" functionality should go
             var dbhash = uuid.v4();
             return when(models.Settings.add({key: 'dbHash', value: dbhash, type: 'core'})).then(function () {
@@ -182,8 +185,6 @@ Ghost.prototype.init = function () {
         return when.join(
             // Check for or initialise a dbHash.
             initDbHashAndFirstRun(),
-            // Initialize plugins
-            self.initPlugins(),
             // Initialize the permissions actions and objects
             permissions.init()
         );
@@ -282,6 +283,19 @@ Ghost.prototype.registerThemeHelper = function (name, fn) {
     hbs.registerHelper(name, fn);
 };
 
+// Register an async handlebars helper for themes
+Ghost.prototype.registerAsyncThemeHelper = function (name, fn) {
+    hbs.registerAsyncHelper(name, function (options, cb) {
+        // Wrap the function passed in with a when.resolve so it can
+        // return either a promise or a value
+        when.resolve(fn.call(this, options)).then(function (result) {
+            cb(result);
+        }).otherwise(function (err) {
+            errors.logAndThrowError(err, "registerAsyncThemeHelper: " + name);
+        });
+    });
+};
+
 // Register a new filter callback function
 Ghost.prototype.registerFilter = function (name, priority, fn) {
     // Curry the priority optional parameter to a default of 5
@@ -312,43 +326,61 @@ Ghost.prototype.unregisterFilter = function (name, priority, fn) {
 };
 
 // Execute filter functions in priority order
-Ghost.prototype.doFilter = function (name, args, callback) {
-    var callbacks = this.filterCallbacks[name];
+Ghost.prototype.doFilter = function (name, args) {
+    var callbacks = this.filterCallbacks[name],
+        priorityCallbacks = [];
 
     // Bug out early if no callbacks by that name
     if (!callbacks) {
-        return callback(args);
+        return when.resolve(args);
     }
 
+    // For each priorityLevel
     _.times(defaults.maxPriority + 1, function (priority) {
-        // Bug out if no handlers on this priority
-        if (!_.isArray(callbacks[priority])) {
-            return;
-        }
-
-        // Call each handler for this priority level
-        _.each(callbacks[priority], function (filterHandler) {
-            try {
-                args = filterHandler(args);
-            } catch (e) {
-                // If a filter causes an error, we log it so that it can be debugged, but do not throw the error
-                errors.logError(e);
+        // Add a function that runs its priority level callbacks in a pipeline
+        priorityCallbacks.push(function (currentArgs) {
+            // Bug out if no handlers on this priority
+            if (!_.isArray(callbacks[priority])) {
+                return when.resolve(currentArgs);
             }
+
+            // Call each handler for this priority level, allowing for promises or values
+            return when.pipeline(callbacks[priority], currentArgs);
         });
     });
 
-    callback(args);
+    return when.pipeline(priorityCallbacks, args);
 };
 
 // Initialise plugins.  Will load from config.activePlugins by default
 Ghost.prototype.initPlugins = function (pluginsToLoad) {
-    pluginsToLoad = pluginsToLoad || models.Settings.activePlugins;
     var self = this;
 
-    return plugins.init(this, pluginsToLoad).then(function (loadedPlugins) {
+    if (!_.isArray(pluginsToLoad)) {
+
+        try {
+            // We have to parse the value because it's a string
+            pluginsToLoad = JSON.parse(this.settings('activePlugins')) || [];
+        } catch (e) {
+            errors.logError(
+                'Failed to parse activePlugins setting value: ' + e.message,
+                'Your plugins will not be loaded.',
+                'Check your settings table for typos in the activePlugins value. It should look like: ["plugin-1", "plugin2"] (double quotes required).'
+            );
+            return when.resolve();
+        }
+    }
+
+    return plugins.init(self, pluginsToLoad).then(function (loadedPlugins) {
         // Extend the loadedPlugins onto the available plugins
         _.extend(self.availablePlugins, loadedPlugins);
-    }, errors.logAndThrowError);
+    }).otherwise(function (err) {
+        errors.logError(
+            err.message || err,
+            'The plugin will not be loaded',
+            'Check with the plugin creator, or read the plugin documentation for more details on plugin requirements'
+        );
+    });
 };
 
 module.exports = Ghost;

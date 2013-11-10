@@ -2,9 +2,8 @@ var path           = require('path'),
     when           = require('when'),
     semver         = require('semver'),
     fs             = require('fs'),
-    path           = require('path'),
     _              = require('underscore'),
-    spawn          = require("child_process").spawn,
+    spawn          = require('child_process').spawn,
     buildDirectory = path.resolve(process.cwd(), '.build'),
     distDirectory  = path.resolve(process.cwd(), '.dist'),
     configLoader   = require('./core/config-loader.js'),
@@ -32,7 +31,8 @@ var path           = require('path'),
         '!config.js',
         '!CONTRIBUTING.md',
         '!SECURITY.md',
-        '!.travis.yml'
+        '!.travis.yml',
+        '!Gemfile*'
     ],
 
     configureGrunt = function (grunt) {
@@ -47,11 +47,10 @@ var path           = require('path'),
                 build: buildDirectory,
                 nightlyBuild: path.join(buildDirectory, 'nightly'),
                 weeklyBuild: path.join(buildDirectory, 'weekly'),
-                buildBuild: path.join(buildDirectory, 'build'),
+                releaseBuild: path.join(buildDirectory, 'release'),
                 dist: distDirectory,
                 nightlyDist: path.join(distDirectory, 'nightly'),
                 weeklyDist: path.join(distDirectory, 'weekly'),
-                buildDist: path.join(distDirectory, 'build'),
                 releaseDist: path.join(distDirectory, 'release')
             },
             buildType: 'Build',
@@ -94,7 +93,7 @@ var path           = require('path'),
                 },
                 express: {
                     // Restart any time client or server js files change
-                    files:  ['core/server/**/*.js'],
+                    files:  ['core/server.js', 'core/server/**/*.js'],
                     tasks:  ['express:dev'],
                     options: {
                         //Without this option specified express won't be reloaded
@@ -111,21 +110,13 @@ var path           = require('path'),
 
                 dev: {
                     options: {
-                        //output: "Express server listening on address:.*$"
+                        //output: 'Express server listening on address:.*$'
                     }
                 },
                 test: {
                     options: {
                         node_env: 'testing'
                     }
-                }
-            },
-
-            // Open the site in a browser
-            open: {
-                server: {
-                    // TODO: Load this port from config?
-                    path: 'http://127.0.0.1:2368'
                 }
             },
 
@@ -141,8 +132,6 @@ var path           = require('path'),
                         nomen: true,
                         // allow to do statements
                         todo: true,
-                        // allow unused parameters
-                        unparam: true,
                         // don't require use strict pragma
                         sloppy: true
                     },
@@ -163,15 +152,13 @@ var path           = require('path'),
                         // allow dangling underscores in var names
                         nomen: true,
                         // allow to do statements
-                        todo: true,
-                         // allow unused parameters
-                        unparam: true
+                        todo: true
                     },
                     files: {
                         src: 'core/client/**/*.js'
                     },
                     exclude: [
-                        'core/client/assets/**/*.js',
+                        'core/client/assets/vendor/**/*.js',
                         'core/client/tpl/**/*.js'
                     ]
                 },
@@ -204,7 +191,8 @@ var path           = require('path'),
             mochacli: {
                 options: {
                     ui: 'bdd',
-                    reporter: 'spec'
+                    reporter: 'spec',
+                    timeout: '15000'
                 },
 
                 all: {
@@ -212,7 +200,11 @@ var path           = require('path'),
                 },
 
                 api: {
-                    src: ['core/test/unit/**/api*_spec.js']
+                    src: ['core/test/integration/**/api*_spec.js']
+                },
+
+                model: {
+                    src: ['core/test/integration/**/model*_spec.js']
                 },
 
                 client: {
@@ -236,12 +228,27 @@ var path           = require('path'),
                         'core/test/unit/**/export_spec.js',
                         'core/test/unit/**/import_spec.js'
                     ]
+                },
+
+                integration: {
+                    src: [
+                        'core/test/integration/**/model*_spec.js',
+                        'core/test/integration/**/api*_spec.js'
+                    ]
                 }
             },
 
             // Compile all the SASS!
             sass: {
                 admin: {
+                    files: {
+                        '<%= paths.adminAssets %>/css/screen.css': '<%= paths.adminAssets %>/sass/screen.scss'
+                    }
+                },
+                compress: {
+                    options: {
+                        style: 'compressed'
+                    },
                     files: {
                         '<%= paths.adminAssets %>/css/screen.css': '<%= paths.adminAssets %>/sass/screen.scss'
                     }
@@ -291,8 +298,11 @@ var path           = require('path'),
             },
 
             clean: {
-                build: {
-                    src: ['<%= paths.buildBuild %>/**']
+                release: {
+                    src: ['<%= paths.releaseBuild %>/**']
+                },
+                test: {
+                    src: ['content/data/ghost-test.db']
                 }
             },
 
@@ -311,11 +321,11 @@ var path           = require('path'),
                         dest: '<%= paths.weeklyBuild %>/<%= pkg.version %>/'
                     }]
                 },
-                build: {
+                release: {
                     files: [{
                         expand: true,
                         src: buildGlob,
-                        dest: '<%= paths.buildBuild %>/'
+                        dest: '<%= paths.releaseBuild %>/'
                     }]
                 }
             },
@@ -337,20 +347,12 @@ var path           = require('path'),
                     cwd: '<%= paths.weeklyBuild %>/<%= pkg.version %>/',
                     src: ['**']
                 },
-                build: {
-                    options: {
-                        archive: '<%= paths.buildDist %>/Ghost-Build.zip'
-                    },
-                    expand: true,
-                    cwd: '<%= paths.buildBuild %>/',
-                    src: ['**']
-                },
                 release: {
                     options: {
                         archive: '<%= paths.releaseDist %>/Ghost-<%= pkg.version %>.zip'
                     },
                     expand: true,
-                    cwd: '<%= paths.buildBuild %>/',
+                    cwd: '<%= paths.releaseBuild %>/',
                     src: ['**']
                 }
             },
@@ -395,7 +397,8 @@ var path           = require('path'),
                             'core/client/assets/vendor/countable.js',
                             'core/client/assets/vendor/to-title-case.js',
                             'core/client/assets/vendor/packery.pkgd.min.js',
-                            'core/client/assets/vendor/fastclick.js'
+                            'core/client/assets/vendor/fastclick.js',
+                            'core/client/assets/vendor/nprogress.js'
                         ],
 
                         'core/built/scripts/helpers.js': [
@@ -452,6 +455,7 @@ var path           = require('path'),
                             'core/client/assets/vendor/to-title-case.js',
                             'core/client/assets/vendor/packery.pkgd.min.js',
                             'core/client/assets/vendor/fastclick.js',
+                            'core/client/assets/vendor/nprogress.js',
 
                             'core/client/init.js',
 
@@ -483,9 +487,9 @@ var path           = require('path'),
 
         grunt.initConfig(cfg);
 
-        grunt.registerTask('setTestEnv', function () {
-            // Use 'testing' Ghost config; unless we are running on travis (then show queries for debugging)
-            process.env.NODE_ENV = process.env.TRAVIS ? 'travis' : 'testing';
+        grunt.registerTask('setTestEnv', 'Use "testing" Ghost config; unless we are running on travis (then show queries for debugging)', function () {
+            process.env.NODE_ENV = process.env.TRAVIS ? 'travis-' + process.env.DB : 'testing';
+            cfg.express.test.options.node_env = process.env.NODE_ENV;
         });
 
         grunt.registerTask('loadConfig', function () {
@@ -495,8 +499,7 @@ var path           = require('path'),
             });
         });
 
-        // Update the package information after changes
-        grunt.registerTask('updateCurrentPackageInfo', function () {
+        grunt.registerTask('updateCurrentPackageInfo', 'Update the package information after changes', function () {
             cfg.pkg = grunt.file.readJSON('package.json');
         });
 
@@ -507,7 +510,9 @@ var path           = require('path'),
         grunt.registerTask('spawn-casperjs', function () {
             var done = this.async(),
                 options = ['host', 'noPort', 'port', 'email', 'password'],
-                args = ['test', 'admin/', 'frontend/', '--includes=base.js', '--direct', '--log-level=debug', '--port=2369'];
+                args = ['test']
+                           .concat(grunt.option('target') || ['admin/', 'frontend/'])
+                           .concat(['--includes=base.js', '--verbose', '--log-level=debug', '--port=2369']);
 
             // Forward parameters from grunt to casperjs
             _.each(options, function processOption(option) {
@@ -524,6 +529,7 @@ var path           = require('path'),
                     stdio: 'inherit'
                 }
             }, function (error, result, code) {
+                /*jslint unparam:true*/
                 if (error) {
                     grunt.fail.fatal(result.stdout);
                 }
@@ -536,7 +542,7 @@ var path           = require('path'),
          * - Pulls changelog from git, excluding merges.
          * - Uses first line of commit message. Includes committer name.
          */
-        grunt.registerTask("changelog", "Generate changelog from Git", function () {
+        grunt.registerTask('changelog', 'Generate changelog from Git', function () {
             // TODO: Break the contents of this task out into a separate module,
             // put on npm. (@cgiffard)
 
@@ -652,6 +658,7 @@ var path           = require('path'),
                 data.replace(
                     commitRegex,
                     function (wholeCommit, hash, author, email, date, message) {
+                        /*jslint unparam:true*/
 
                         // The author name and commit message may have trailing space.
                         author = author.trim();
@@ -711,12 +718,12 @@ var path           = require('path'),
                         // Use the comparison with HEAD to remove commits which
                         // haven't been included in a build/release yet.
 
-                        if (tag.tag === "HEAD") {
+                        if (tag.tag === 'HEAD') {
                             commits.forEach(function (commit) {
                                 commitCache[commit.hash] = true;
                             });
 
-                            return callback("");
+                            return callback('');
                         }
 
                         buffer += '## Release ' + tag.tag + '\n';
@@ -737,7 +744,7 @@ var path           = require('path'),
                             });
 
                         if (!commits.length) {
-                            buffer += "\nNo changes were made in this build.\n";
+                            buffer += '\nNo changes were made in this build.\n';
                         }
 
                         callback(buffer + '\n');
@@ -762,6 +769,7 @@ var path           = require('path'),
 
                 when.reduce(tags,
                     function (prev, tag, idx) {
+                        /*jslint unparam:true*/
                         return when.promise(function (resolve) {
                             processTag(tag, function (releaseData) {
                                 resolve(prev + '\n' + releaseData);
@@ -776,96 +784,109 @@ var path           = require('path'),
             });
         });
 
-        /* Nightly builds
-         * - Do our standard build steps (sass, handlebars, etc)
-         * - Bump patch version in package.json, commit, tag and push
-         * - Generate changelog for the past 14 releases
-         * - Copy files to build-folder/#/#{version} directory
-         * - Clean out unnecessary files (travis, .git*, .af*, .groc*)
-         * - Zip files in build folder to dist-folder/#{version} directory
-         */
-        grunt.registerTask("nightly", [
-            'setCurrentBuildType:Nightly',
-            'shell:bourbon',
-            'sass:admin',
-            'handlebars',
-            'concat',
-            'uglify',
-            'bump:build',
-            'updateCurrentPackageInfo',
-            'changelog',
-            'copy:nightly',
-            'compress:nightly'
-        ]);
+        // ## Tools for packaging builds - these can be weeklies, nightlies or releases
 
-        grunt.registerTask("weekly", [
-            'setCurrentBuildType:Weekly',
-            'shell:bourbon',
-            'sass:admin',
-            'handlebars',
-            'concat',
-            'uglify',
-            'bump:build',
-            'updateCurrentPackageInfo',
-            'changelog',
-            'copy:weekly',
-            'compress:weekly'
-        ]);
+        /* These tools are currently unused
+        grunt.registerTask('nightly',
+            'Nightly builds\n' +
+            ' - Do our standard build steps (sass, handlebars, etc)\n' +
+            ' - Bump patch version in package.json, commit, tag and push\n' +
+            ' - Generate changelog for the past 14 releases\n' +
+            ' - Copy files to build-folder/#/#{version} directory\n' +
+            ' - Clean out unnecessary files (travis, .git*, .af*, .groc*)\n' +
+            ' - Zip files in build folder to dist-folder/#{version} directory',
+            [
+                'setCurrentBuildType:Nightly',
+                'shell:bourbon',
+                'sass:compress',
+                'handlebars',
+                'concat',
+                'uglify',
+                'bump:build',
+                'updateCurrentPackageInfo',
+                'changelog',
+                'copy:nightly',
+                'compress:nightly'
+            ]);
 
-        grunt.registerTask('build', [
-            'shell:bourbon',
-            'sass:admin',
-            'handlebars',
-            'concat',
-            'uglify',
-            'changelog',
-            'clean:build',
-            'copy:build',
-            'compress:build'
-        ]);
+        grunt.registerTask('weekly',
+            'Weekly builds\n' +
+            ' - Do our standard build steps (sass, handlebars, etc)\n' +
+            ' - Bump patch version in package.json, commit, tag and push\n' +
+            ' - Generate changelog for the past 14 releases\n' +
+            ' - Copy files to build-folder/#/#{version} directory\n' +
+            ' - Clean out unnecessary files (travis, .git*, .af*, .groc*)\n' +
+            ' - Zip files in build folder to dist-folder/#{version} directory',
+            [
+                'setCurrentBuildType:Weekly',
+                'shell:bourbon',
+                'sass:compress',
+                'handlebars',
+                'concat',
+                'uglify',
+                'bump:build',
+                'updateCurrentPackageInfo',
+                'changelog',
+                'copy:weekly',
+                'compress:weekly'
+            ]);
+        */
 
-        grunt.registerTask('release', [
-            'shell:bourbon',
-            'sass:admin',
-            'handlebars',
-            'concat',
-            'uglify',
-            'changelog',
-            'clean:build',
-            'copy:build',
-            'compress:release'
-        ]);
+        grunt.registerTask('release',
+            'Release task - creates a final built zip\n' +
+            ' - Do our standard build steps (sass, handlebars, etc)\n' +
+            ' - Generate changelog for the past 14 releases\n' +
+            ' - Copy files to release-folder/#/#{version} directory\n' +
+            ' - Clean out unnecessary files (travis, .git*, .af*, .groc*)\n' +
+            ' - Zip files in release-folder to dist-folder/#{version} directory',
+            [
+                'shell:bourbon',
+                'sass:compress',
+                'handlebars',
+                'concat',
+                'uglify',
+                'changelog',
+                'clean:release',
+                'copy:release',
+                'compress:release'
+            ]);
 
-        // Dev Mode; watch files and restart server on changes
-        grunt.registerTask('dev', [
-            'default',
-            'express:dev',
-            'open',
-            'watch'
-        ]);
+        grunt.registerTask('dev',
+            'Dev Mode; watch files and restart server on changes',
+            [
+                'sass:admin',
+                'handlebars',
+                'concat',
+                'express:dev',
+                'watch'
+            ]);
 
-        // Prepare the project for development
-        // TODO: Git submodule init/update (https://github.com/jaubourg/grunt-update-submodules)?
-        grunt.registerTask('init', ['shell:bourbon', 'default']);
 
-        // Run unit tests
-        grunt.registerTask('test-unit', ['setTestEnv', 'loadConfig', 'mochacli:all']);
+        // ## Running the test suites
 
-        // Run casperjs tests only
-        grunt.registerTask('test-functional', ['setTestEnv', 'express:test', 'spawn-casperjs']);
+        grunt.registerTask('test-unit', 'Run unit tests', ['clean:test', 'setTestEnv', 'loadConfig', 'express:test', 'mochacli:all']);
 
-        // Run tests and lint code
-        grunt.registerTask('validate', ['jslint', 'test-unit', 'test-functional']);
+        grunt.registerTask('test-integration', 'Run integration tests', ['clean:test', 'setTestEnv', 'loadConfig', 'express:test', 'mochacli:integration']);
 
-        // Generate Docs
-        grunt.registerTask('docs', ['groc']);
+        grunt.registerTask('test-functional', 'Run casperjs tests only', ['clean:test', 'setTestEnv', 'express:test', 'spawn-casperjs']);
 
-        // TODO: Production build task that minifies with uglify:prod
+        grunt.registerTask('validate', 'Run tests and lint code', ['jslint', 'test-unit', 'test-integration', 'test-functional']);
 
-        grunt.registerTask('prod', ['sass:admin', 'handlebars', 'concat', 'uglify']);
+
+        // ## Documentation
+
+        grunt.registerTask('docs', 'Generate Docs', ['groc']);
+
+
+        // ## Tools for building assets
+
+        grunt.registerTask('init', 'Prepare the project for development', ['shell:bourbon', 'default']);
+
+        // Before running in production mode
+        grunt.registerTask('prod', 'Build CSS, JS & templates for production', ['sass:compress', 'handlebars', 'concat', 'uglify']);
 
         // When you just say 'grunt'
-        grunt.registerTask('default', ['sass:admin', 'handlebars', 'concat']);
+        grunt.registerTask('default', 'Build CSS, JS & templates for development', ['update_submodules', 'sass:compress', 'handlebars', 'concat']);
     };
 
 module.exports = configureGrunt;

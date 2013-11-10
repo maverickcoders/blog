@@ -10,7 +10,7 @@
         Validate    : new Validator(),
 
         settings: {
-            apiRoot: '/api/v0.1'
+            apiRoot: '/ghost/api/v0.1'
         },
 
         // This is a helper object to denote legacy things in the
@@ -34,6 +34,9 @@
     };
 
     Ghost.init = function () {
+        // remove the temporary message which appears
+        $('.js-msg').remove();
+
         Ghost.router = new Ghost.Router();
 
         // This is needed so Backbone recognizes elements already rendered server side

@@ -41,7 +41,6 @@ frontendControllers = {
         }
 
         api.posts.browse(options).then(function (page) {
-
             var maxPage = page.pages;
 
             // A bit of a hack for situations with no content.
@@ -56,7 +55,7 @@ frontendControllers = {
             }
 
             // Render the page of posts
-            ghost.doFilter('prePostsRender', page.posts, function (posts) {
+            ghost.doFilter('prePostsRender', page.posts).then(function (posts) {
                 res.render('index', {posts: posts, pagination: {page: page.page, prev: page.prev, next: page.next, limit: page.limit, total: page.total, pages: page.pages}});
             });
         }).otherwise(function (err) {
@@ -66,8 +65,13 @@ frontendControllers = {
     'single': function (req, res, next) {
         api.posts.read({'slug': req.params.slug}).then(function (post) {
             if (post) {
-                ghost.doFilter('prePostsRender', post, function (post) {
-                    res.render('post', {post: post});
+                ghost.doFilter('prePostsRender', post).then(function (post) {
+                    var paths = ghost.paths().availableThemes[ghost.settings('activeTheme')];
+                    if (post.page && paths.hasOwnProperty('page')) {
+                        res.render('page', {post: post});
+                    } else {
+                        res.render('post', {post: post});
+                    }
                 });
             } else {
                 next();
@@ -117,23 +121,25 @@ frontendControllers = {
                     return res.redirect('/rss/' + maxPage + '/');
                 }
 
-                ghost.doFilter('prePostsRender', page.posts, function (posts) {
+                ghost.doFilter('prePostsRender', page.posts).then(function (posts) {
                     posts.forEach(function (post) {
                         var item = {
                                 title:  _.escape(post.title),
                                 guid: post.uuid,
                                 url: siteUrl + '/' + post.slug + '/',
-                                date: post.published_at,
+                                date: post.published_at
                             },
                             content = post.html;
 
                         //set img src to absolute url
                         content = content.replace(/src=["|'|\s]?([\w\/\?\$\.\+\-;%:@&=,_]+)["|'|\s]?/gi, function (match, p1) {
+                            /*jslint unparam:true*/
                             p1 = url.resolve(siteUrl, p1);
                             return "src='" + p1 + "' ";
                         });
                         //set a href to absolute url
                         content = content.replace(/href=["|'|\s]?([\w\/\?\$\.\+\-;%:@&=,_]+)["|'|\s]?/gi, function (match, p1) {
+                            /*jslint unparam:true*/
                             p1 = url.resolve(siteUrl, p1);
                             return "href='" + p1 + "' ";
                         });
@@ -148,7 +154,6 @@ frontendControllers = {
             return next(new Error(err));
         });
     }
-
 };
 
 module.exports = frontendControllers;

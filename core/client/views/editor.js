@@ -33,7 +33,9 @@
             {'key': 'Ctrl+Alt+W', 'style': 'selectword'},
             {'key': 'Ctrl+L', 'style': 'list'},
             {'key': 'Ctrl+Alt+C', 'style': 'copyHTML'},
-            {'key': 'Meta+Alt+C', 'style': 'copyHTML'}
+            {'key': 'Meta+Alt+C', 'style': 'copyHTML'},
+            {'key': 'Meta+Enter', 'style': 'newLine'},
+            {'key': 'Ctrl+Enter', 'style': 'newLine'}
         ],
         imageMarkdownRegex = /^(?:\{<(.*?)>\})?!(?:\[([^\n\]]*)\])(?:\(([^\n\]]*)\))?$/gim,
         markerRegex = /\{<([\w\W]*?)>\}/;
@@ -314,6 +316,10 @@
                 $(e.target).closest('section').addClass('active');
             });
 
+            // Deactivate default drag/drop action
+            $(document).bind('drop dragover', function (e) {
+                e.preventDefault();
+            });
         },
 
         events: {
@@ -408,7 +414,11 @@
                 tabMode: 'indent',
                 tabindex: "2",
                 lineWrapping: true,
-                dragDrop: false
+                dragDrop: false,
+                extraKeys: {
+                    Home: "goLineLeft",
+                    End: "goLineRight"
+                }
             });
             this.uploadMgr = new UploadManager(this.editor);
 
@@ -438,7 +448,8 @@
         },
 
         initUploads: function () {
-            this.$('.js-drop-zone').upload({editor: true});
+            var filestorage = $('#entry-markdown-content').data('filestorage');
+            this.$('.js-drop-zone').upload({editor: true, fileStorage: filestorage});
             this.$('.js-drop-zone').on('uploadstart', $.proxy(this.disableEditor, this));
             this.$('.js-drop-zone').on('uploadfailure', $.proxy(this.enableEditor, this));
             this.$('.js-drop-zone').on('uploadsuccess', $.proxy(this.enableEditor, this));
@@ -639,6 +650,7 @@
             var value = editor.getValue();
 
             _.each(markerMgr.markers, function (marker, id) {
+                /*jslint unparam:true*/
                 value = value.replace(markerMgr.getMarkerRegexForId(id), '');
             });
 
@@ -653,6 +665,7 @@
 
         // initialise
         editor.on('change', function (cm, changeObj) {
+            /*jslint unparam:true*/
             var linesChanged = _.range(changeObj.from.line, changeObj.from.line + changeObj.text.length);
 
             _.each(linesChanged, function (ln) {
