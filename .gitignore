@@ -59,3 +59,9 @@ config.js
 
 # Built asset files
 /core/built
+<<<<<<< HEAD
+=======
+
+# Coverage reports
+coverage.html
+>>>>>>> 2c43d3c520cb299840a882babcbcc2aa41d91439

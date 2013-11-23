@@ -21,6 +21,7 @@ var path           = require('path'),
         '!node_modules/**',
         '!core/test/**',
         '!core/client/assets/sass/**',
+        '!core/server/data/export/exported*',
         '!**/*.db*',
         '!*.db*',
         '!.sass*',
@@ -32,7 +33,8 @@ var path           = require('path'),
         '!CONTRIBUTING.md',
         '!SECURITY.md',
         '!.travis.yml',
-        '!Gemfile*'
+        '!Gemfile*',
+        '!*.html'
     ],
 
     configureGrunt = function (grunt) {
@@ -258,6 +260,16 @@ var path           = require('path'),
             shell: {
                 bourbon: {
                     command: 'bourbon install --path <%= paths.adminAssets %>/sass/modules/'
+                },
+                coverage: {
+                    command: function () {
+                        // will work on windows only if mocha is globally installed
+                        var cmd = !!process.platform.match(/^win/) ? 'mocha' : './node_modules/mocha/bin/mocha';
+                        return cmd + ' --timeout 15000 --reporter html-cov > coverage.html ./core/test/blanket_coverage.js';
+                    },
+                    execOptions: {
+                        env: 'NODE_ENV=' + process.env.NODE_ENV
+                    }
                 }
             },
 
@@ -379,8 +391,6 @@ var path           = require('path'),
                             'core/shared/vendor/handlebars/handlebars-runtime.js',
                             'core/shared/vendor/moment.js',
 
-                            'core/client/assets/vendor/icheck/jquery.icheck.min.js',
-
                             'core/shared/vendor/jquery/jquery.ui.widget.js',
                             'core/shared/vendor/jquery/jquery.iframe-transport.js',
                             'core/shared/vendor/jquery/jquery.fileupload.js',
@@ -435,8 +445,6 @@ var path           = require('path'),
                             'core/shared/vendor/backbone/backbone.js',
                             'core/shared/vendor/handlebars/handlebars-runtime.js',
                             'core/shared/vendor/moment.js',
-
-                            'core/client/assets/vendor/icheck/jquery.icheck.min.js',
 
                             'core/shared/vendor/jquery/jquery.ui.widget.js',
                             'core/shared/vendor/jquery/jquery.iframe-transport.js',
@@ -864,13 +872,18 @@ var path           = require('path'),
 
         // ## Running the test suites
 
-        grunt.registerTask('test-unit', 'Run unit tests', ['clean:test', 'setTestEnv', 'loadConfig', 'express:test', 'mochacli:all']);
+        grunt.registerTask('test-unit', 'Run unit tests', ['clean:test', 'setTestEnv', 'loadConfig', 'express:test', 'mochacli:all', 'express:test:stop']);
 
-        grunt.registerTask('test-integration', 'Run integration tests', ['clean:test', 'setTestEnv', 'loadConfig', 'express:test', 'mochacli:integration']);
+        grunt.registerTask('test-integration', 'Run integration tests', ['clean:test', 'setTestEnv', 'loadConfig', 'express:test', 'mochacli:integration', 'express:test:stop']);
 
-        grunt.registerTask('test-functional', 'Run casperjs tests only', ['clean:test', 'setTestEnv', 'express:test', 'spawn-casperjs']);
+        grunt.registerTask('test-functional', 'Run casperjs tests only', ['clean:test', 'setTestEnv', 'loadConfig', 'express:test', 'spawn-casperjs', 'express:test:stop']);
 
         grunt.registerTask('validate', 'Run tests and lint code', ['jslint', 'test-unit', 'test-integration', 'test-functional']);
+
+
+        // ## Coverage report for Unit and Integration Tests
+
+        grunt.registerTask('test-coverage', 'Generate unit and integration tests coverage report', ['clean:test', 'setTestEnv', 'loadConfig', 'express:test', 'shell:coverage']);
 
 
         // ## Documentation
